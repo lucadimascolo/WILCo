@@ -1,12 +1,36 @@
 import matplotlib; matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 
+from astropy.io import fits
+import astropy.constants as const
+import astropy.units as u
+
+global    Tcmb; Tcmb    = 2.7255e+00
+global  kboltz; kboltz  = const.k_B.value
+global hplanck; hplanck = const.h.value
+
 import numpy as np
 
 import sys
 import os
 
 from mpi4py import MPI
+
+
+######################################################################
+# SZ spectrum
+######################################################################
+# Adimenional frequency
+# --------------------------------------------------------------------
+def getx(freq):
+  return hplanck*freq/(kboltz*Tcmb)
+
+# Compton y to Jy/pixel
+# --------------------------------------------------------------------
+def comptonToKcmb(freq):
+  x = getx(freq)
+  return (-4.00+x/np.tanh(0.50*x))
+
 
 ######################################################################
 # Generic tools
