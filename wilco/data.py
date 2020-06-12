@@ -5,8 +5,11 @@ from scipy.ndimage import gaussian_filter
 
 ######################################################################
 class getdata:
-  def __init__(self,imglist,numkern=1,idxdata=(0,...),**kwargs):
+  def __init__(self,imglist,cuts=1,idxdata=(0,...),**kwargs):
     
+    if type(cuts)==int: numcuts = cuts
+    else: numcuts = cuts.shape[0]+1
+
     frqdata = []
     fftdata = []
     for i, img in enumerate(imglist):
@@ -18,9 +21,9 @@ class getdata:
       fftdata.append(np.fft.fft2(imgdata))
     frqdata = np.asarray(frqdata)
     fftdata = np.asarray(fftdata)
-    fftdata = np.broadcast_to(fftdata[np.newaxis,...],(numkern,*fftdata.shape)).copy()
+    fftdata = np.broadcast_to(fftdata[np.newaxis,...],(numcuts,*fftdata.shape)).copy()
 
-    if numkern>1: flatcut(fftdata,numkern)
+    if numcuts>1: flatcut(fftdata,cuts)
 
     self.maps = np.fft.ifft2(fftdata,axes=(-2,-1)).real
     self.freq = frqdata
@@ -32,12 +35,14 @@ def flatcut(data,cuts):
                   np.outer(np.fft.fftfreq(data.shape[-2]),np.ones(data.shape[-1])))
   edge = np.abs(np.fft.fftfreq(data.shape[-1])).max()
 
-  data[ 0,:,freq>(edge/cuts)] = 0.00+0.00j
-  data[-1,:,freq<(edge/cuts)*(cuts-1)] = 0.00+0.00j
-  for c in range(1,cuts-1):
-    mask = np.logical_and(freq>=c*edge/cuts,freq<(c+1)*edge/cuts)
+  if type(cuts)==int:
+    cuts = np.array([1.00*c/cuts for c in range(1,cuts)])
+  
+  data[ 0,:,freq>cuts[ 0]*edge] = 0.00+0.00j
+  data[-1,:,freq<cuts[-1]*edge] = 0.00+0.00j
+  for c, cut in enumerate(cuts[:-1]):
+    mask = np.logical_and(freq>=cuts[c]*edge,freq<cuts[c+1]*edge)
     data[c,:,~mask] = 0.00+0.00j
-
 
 # Simple Gaussian apodization
 # --------------------------------------------------------------------
