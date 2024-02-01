@@ -5,7 +5,7 @@ from astropy.io import fits
 from astropy import units as u
 from astropy import constants as const
 
-from astropy.convolution import convolve as convolve
+from astropy.convolution import convolve_fft as convolve
 from astropy.convolution import Gaussian2DKernel, Tophat2DKernel
 
 import numpy as np

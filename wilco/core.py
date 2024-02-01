@@ -16,6 +16,10 @@ class wavelet:
                             np.abs(np.fft.fftfreq(data.shape[1]).max()))
         npeaks = npeaks*np.linspace(0,1,nd)#**0.50
         
+        self.scales = np.minimum(data.shape[0],data.shape[1])/(npeaks[1]-npeaks[0])
+        self.scales = np.append(self.scales,0.50*np.minimum(data.shape[0],data.shape[1])/npeaks[1:])
+        self.scales = self.scales*0.25
+
         self.base = [np.cos(0.50*np.pi*freq/(npeaks[1]-npeaks[0]))]
         self.base[0][freq>npeaks[1]] = 0.00
       
@@ -44,14 +48,13 @@ class wavelet:
     factor = np.array([factor*base for base in self.base])
     return np.fft.ifftshift(np.fft.ifft2(factor,axes=(-2,-1)),axes=(-2,-1)).real
 
-
 # ================================================
 # WILCo
 # ================================================
 # Main structure
 # ------------------------------------------------
 class build:
-  def __init__(self,imglist=None,maps=None,patches=None,needlet=0):
+  def __init__(self,imglist=None,maps=None,needlet=0):
     if   (imglist is None) and (maps is not None):
       self.maps = maps
     elif (imglist is not None) and (maps is None):
@@ -62,24 +65,38 @@ class build:
     maplist = np.array([self.needlet.fft(m.data) for m in self.maps])
     maplist = np.swapaxes(maplist,0,1)
     
-    if patches==1 or patches is None:
-      maplist = [[maplist]]
-    elif len(patches)==2:
+    fftlist = np.fft.fft2(maplist,axes=(-2,-1))
+    fftkern = np.zeros((fftlist.shape[0],fftlist.shape[-2],fftlist.shape[-1]))
+    for nd in range(maplist.shape[0]):
+      kern = Gaussian2DKernel(self.needlet.scales[nd],
+                              x_size=maplist.shape[-1],
+                              y_size=maplist.shape[-2])
+      fftkern[nd] = np.abs(np.fft.fft2(np.fft.fftshift(kern.array)))
 
-      maplist = np.array_split(maplist,patches[0],axis=-2)
-      maplist = [np.array_split(m,patches[1],axis=-1) for m in maplist]
+      for ni in range(maplist.shape[1]):
+        fftlist[nd,ni] = fftlist[nd,ni]*fftkern[nd]
 
-    # px, py, fft, freq, x, y
-    self.icov = [[[np.cov(ni.reshape(ni.shape[0],-1)) for ni in mi] for mi in mj] for mj in maplist]
-    self.icov = np.asarray(self.icov)
+    fftlist = np.fft.ifft2(fftlist,axes=(-2,-1)).real
 
-    print(self.icov[0][0][0])
-    
+    covlist = np.zeros((maplist.shape[0],maplist.shape[-2],maplist.shape[-1],maplist.shape[1],maplist.shape[1],))
+    for nd in range(maplist.shape[0]):
+      for ni in range(maplist.shape[1]):
+        for nj in range(maplist.shape[1]):
+          covlist[nd,...,ni,nj] = (maplist[nd,ni]-fftlist[nd,ni])*(maplist[nd,nj]-fftlist[nd,nj])
+          covlist[nd,...,nj,ni] = covlist[nd,...,ni,nj].copy()
+      
+      covkern = np.fft.fft2(covlist[nd],axes=(1,2))
+      covkern = covkern*fftkern[nd][...,None,None]
+      covlist[nd] = np.fft.ifft2(covkern,axes=(1,2)).real
+
+    self.covlist = np.linalg.inv(covlist)
+    self.maplist = maplist.copy()
+
 # Obtained WILCo weights
 # ------------------------------------------------
   def getw(self,bounds=[{'type': 'cmb', 'value': 1.00}],):
     cond = np.zeros(len(bounds))
-    spec = np.zeros((self.icov.shape[-1],len(bounds)))
+    spec = np.zeros((self.covlist.shape[-1],len(bounds)))
     for b, bound in enumerate(bounds):
       if   bound['type']=='cmb': spec[:,b] = 1.00
       elif bound['type']=='tsz': 
@@ -87,49 +104,25 @@ class build:
         spec[:,b] = comptonToKcmb(freq)
 
       cond[b] = bound['value']
+    
+    wilc = np.zeros(self.covlist[...,0].shape)
+    for nd in range(self.covlist.shape[0]):
+      cv = np.einsum('ij,bcjj->bcij',spec.T,self.covlist[nd])
+      cw = np.einsum('ij,bcjj,jk->bcik',spec.T,self.covlist[nd],spec)
+      cw = np.linalg.inv(cw)
 
-    wilc = np.zeros(self.icov[...,0].shape)
-    for ci in range(self.icov.shape[0]):
-      for cj in range(self.icov.shape[1]):
-        for ni in range(self.icov.shape[2]):
-          cv = np.matmul(spec.T,self.icov[ci,cj,ni].T)
-          cw = np.matmul(spec.T,np.matmul(self.icov[ci,cj,ni],spec))
-          wilc[ci,cj,ni] = np.matmul(cond,np.matmul(np.linalg.inv(cw),cv))
+      cw = np.einsum('bcij,bcjk->bcik',cw,cv)
+      wilc[nd] = np.einsum('i,bcij->bcj',cond,cw)
+    
+    wilc = np.moveaxis(wilc,-1,1)
     return wilc
 
 # Recombine maps
 # ------------------------------------------------
-  def combine(self,wilc,mode='tile'):
-    maplist = np.array([self.needlet.fft(m.data) for m in self.maps])
-    maplist = np.swapaxes(maplist,0,1)
-
-    mapwilc = np.zeros(maplist.shape)
-
-    mapwilc = np.array_split(mapwilc,self.icov.shape[0],axis=-2)
-    mapwilc = [np.array_split(m,self.icov.shape[1],axis=-1) for m in mapwilc]
-
-    for ci in range(self.icov.shape[0]):
-      for cj in range(self.icov.shape[1]):
-        for ni in range(self.icov.shape[2]):
-          mapwilc[ci][cj][ni] = np.broadcast_to(wilc[ci,cj,ni][:,None,None],mapwilc[ci][cj][ni].shape).copy()
-
-    if mode in ['tile','smooth']:
-      parwilc = []
-      for ni in range(self.icov.shape[2]):
-        onewilc = np.array([np.concatenate([np.concatenate([mi[ni][ci] for mi in mj],axis=1) for mj in mapwilc],axis=0) for ci in range(mapwilc[0][0][ni].shape[0])])
-
-        if mode=='smooth':
-          mapkern = Gaussian2DKernel(np.minimum(onewilc.shape[-2]//self.icov.shape[0],
-                                                onewilc.shape[-1]//self.icov.shape[1]))
-          onewilc = [convolve(m,mapkern,boundary='extend') for m in onewilc]
-      
-        parwilc.append(onewilc)
-      parwilc = np.asarray(parwilc)
-
-    outwilc = np.sum(parwilc*maplist,axis=(1))
-
-    return outwilc, parwilc
-
+  def combine(self,wilc):
+    milc = np.sum(self.maplist*wilc,axis=0)
+    return milc
+     
 # ================================================
 # Support functions
 # ================================================
