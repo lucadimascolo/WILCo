@@ -1,9 +1,9 @@
+from .core import *
 
-from .data  import *
-from .ilc   import *
-from .utils import *
-
-printInfo('\n-----------------------------------------')
-printInfo(  '                  wILCo                  ')
-printInfo(  '                > 0.0.1 <                ')
-printInfo(  '-----------------------------------------')
+#> print('           _ _           ')
+#> print('          (_) |          ')
+#> print(' __      ___| | ___ ___  ')
+#> print(' \ \ /\ / / | |/ __/ _ \ ')
+#> print('  \ V  V /| | | (_| (_) |')
+#> print('   \_/\_/ |_|_|\___\___/ \n')
+                        
