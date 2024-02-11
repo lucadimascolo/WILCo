@@ -16,9 +16,11 @@ class wavelet:
                             np.abs(np.fft.fftfreq(data.shape[1]).max()))
         npeaks = npeaks*np.linspace(0,1,nd)#**0.50
         
-        self.scales = np.minimum(data.shape[0],data.shape[1])/(npeaks[1]-npeaks[0])
-        self.scales = np.append(self.scales,0.50*np.minimum(data.shape[0],data.shape[1])/npeaks[1:])
-        self.scales = self.scales*0.25
+      # self.scales = np.minimum(data.shape[0],data.shape[1])/(npeaks[1]-npeaks[0])
+      # self.scales = np.append(self.scales,0.50*np.minimum(data.shape[0],data.shape[1])/npeaks[1:])
+      # self.scales = self.scales*0.25
+
+        self.scales = np.minimum(data.shape[0],data.shape[1])*(0.50-npeaks)
 
         self.base = [np.cos(0.50*np.pi*freq/(npeaks[1]-npeaks[0]))]
         self.base[0][freq>npeaks[1]] = 0.00
@@ -40,6 +42,8 @@ class wavelet:
 
         self.base.append(base)
         self.base = np.asarray(self.base)
+
+      self.kernel = np.array([np.exp(-0.50*(si*freq)**2) for si in range(self.scales)])
 
 # Apply wavelet filters
 # ------------------------------------------------
@@ -66,13 +70,9 @@ class build:
     maplist = np.swapaxes(maplist,0,1)
     
     fftlist = np.fft.fft2(maplist,axes=(-2,-1))
-    fftkern = np.zeros((fftlist.shape[0],fftlist.shape[-2],fftlist.shape[-1]))
+    fftkern = self.needlet.kernel.copy() 
+    
     for nd in range(maplist.shape[0]):
-      kern = Gaussian2DKernel(self.needlet.scales[nd],
-                              x_size=maplist.shape[-1],
-                              y_size=maplist.shape[-2])
-      fftkern[nd] = np.abs(np.fft.fft2(np.fft.fftshift(kern.array)))
-
       for ni in range(maplist.shape[1]):
         fftlist[nd,ni] = fftlist[nd,ni]*fftkern[nd]
 
